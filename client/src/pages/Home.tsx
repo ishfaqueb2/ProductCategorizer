@@ -9,6 +9,7 @@ import { ResultsTable } from "@/components/ResultsTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Download, ArrowRight, ArrowLeft } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
   const [currentStep, setCurrentStep] = useState<WizardStep>("upload");
@@ -16,22 +17,58 @@ export default function Home() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [productFile, setProductFile] = useState<File | null>(null);
   const [taxonomyFile, setTaxonomyFile] = useState<File | null>(null);
+  const [detectedColumns, setDetectedColumns] = useState<string[]>([]);
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<any[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     const savedKey = localStorage.getItem("gemini_api_key");
     setHasApiKey(!!savedKey);
   }, []);
 
-  const detectedColumns = ["product_id", "title", "brand_name", "description", "image_url"];
+  useEffect(() => {
+    if (productFile) {
+      uploadProductFile();
+    }
+  }, [productFile]);
+
+  const uploadProductFile = async () => {
+    if (!productFile) return;
+
+    const formData = new FormData();
+    formData.append("file", productFile);
+
+    try {
+      const response = await fetch("/api/upload/product", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Failed to upload file");
+
+      const data = await response.json();
+      setDetectedColumns(data.headers);
+      toast({
+        title: "File uploaded",
+        description: `Detected ${data.rowCount} products with ${data.headers.length} columns`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: error.message,
+      });
+    }
+  };
 
   const handleNext = () => {
     const steps: WizardStep[] = ["upload", "map", "taxonomy", "configure", "process", "export"];
-    const currentIndex = steps.indexOf(currentStep);
+    const currentIndex = steps.findIndex((s) => s === currentStep);
     
     if (!completedSteps.includes(currentStep)) {
       setCompletedSteps([...completedSteps, currentStep]);
@@ -46,59 +83,116 @@ export default function Home() {
 
   const handleBack = () => {
     const steps: WizardStep[] = ["upload", "map", "taxonomy", "configure", "process", "export"];
-    const currentIndex = steps.indexOf(currentStep);
+    const currentIndex = steps.findIndex((s) => s === currentStep);
     if (currentIndex > 0) {
       setCurrentStep(steps[currentIndex - 1]);
     }
   };
 
-  const startProcessing = () => {
+  const startProcessing = async () => {
+    if (!productFile || !taxonomyFile) {
+      toast({
+        variant: "destructive",
+        title: "Missing files",
+        description: "Both product and taxonomy files are required",
+      });
+      return;
+    }
+
+    const apiKey = localStorage.getItem("gemini_api_key");
+    if (!apiKey) {
+      toast({
+        variant: "destructive",
+        title: "API key required",
+        description: "Please configure your Gemini API key first",
+      });
+      return;
+    }
+
     setIsProcessing(true);
     setCurrentStep("process");
-    setProcessingProgress({ current: 0, total: 12 });
 
-    const interval = setInterval(() => {
-      setProcessingProgress((prev) => {
-        if (prev.current >= prev.total) {
-          clearInterval(interval);
-          setIsProcessing(false);
-          setCompletedSteps([...completedSteps, "process"]);
-          setCurrentStep("export");
-          setResults([
-            {
-              id: "1123",
-              name: "Women's Rib Midi Dress",
-              taxonomyId: "30",
-              taxonomyPath: "Apparel > Women's Clothing > Dresses",
-              confidenceScore: 0.94,
-              status: "high-confidence",
-            },
-            {
-              id: "1124",
-              name: "Belden Wallet",
-              taxonomyId: "128",
-              taxonomyPath: "Accessories > Wallets",
-              confidenceScore: 0.62,
-              status: "low-confidence",
-            },
-            {
-              id: "1125",
-              name: "Running Shoes",
-              taxonomyId: "45",
-              taxonomyPath: "Footwear > Athletic > Running",
-              confidenceScore: 0.88,
-              status: "high-confidence",
-            },
-          ]);
-          return prev;
-        }
-        return { ...prev, current: prev.current + 1 };
+    try {
+      const formData = new FormData();
+      formData.append("productFile", productFile);
+      formData.append("taxonomyFile", taxonomyFile);
+      formData.append("columnMappings", JSON.stringify(columnMappings));
+      formData.append("confidenceThreshold", confidenceThreshold.toString());
+
+      const sessionResponse = await fetch("/api/sessions", {
+        method: "POST",
+        body: formData,
       });
-    }, 500);
+
+      if (!sessionResponse.ok) throw new Error("Failed to create session");
+
+      const sessionData = await sessionResponse.json();
+      setSessionId(sessionData.sessionId);
+
+      const totalChunks = Math.ceil(sessionData.totalProducts / 500);
+      setProcessingProgress({ current: 0, total: totalChunks });
+
+      const categorizeResponse = await fetch(`/api/sessions/${sessionData.sessionId}/categorize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      });
+
+      if (!categorizeResponse.ok) throw new Error("Categorization failed");
+
+      const result = await categorizeResponse.json();
+      setResults(result.products);
+      setProcessingProgress({ current: totalChunks, total: totalChunks });
+      setIsProcessing(false);
+      setCompletedSteps([...completedSteps, "process"]);
+      setCurrentStep("export");
+
+      toast({
+        title: "Processing complete",
+        description: `Successfully categorized ${result.products.length} products`,
+      });
+    } catch (error: any) {
+      setIsProcessing(false);
+      toast({
+        variant: "destructive",
+        title: "Processing failed",
+        description: error.message,
+      });
+      setCurrentStep("configure");
+    }
   };
 
-  const handleExport = (type: "all" | "low-confidence") => {
-    console.log(`Exporting ${type} results`);
+  const handleExport = async (type: "all" | "low-confidence", format: "csv" | "xlsx") => {
+    if (!sessionId) return;
+
+    try {
+      const response = await fetch(
+        `/api/sessions/${sessionId}/export?filter=${type}&format=${format}`
+      );
+
+      if (!response.ok) throw new Error("Export failed");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `products-${sessionId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export successful",
+        description: `Downloaded ${type === "all" ? "all" : "low confidence"} results as ${format.toUpperCase()}`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: error.message,
+      });
+    }
   };
 
   const canProceed = () => {
@@ -186,23 +280,38 @@ export default function Home() {
                 <div className="space-y-6">
                   <ResultsTable products={results} confidenceThreshold={confidenceThreshold} />
 
-                  <div className="flex gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Button
-                      onClick={() => handleExport("all")}
-                      className="flex-1"
-                      data-testid="button-export-all"
+                      onClick={() => handleExport("all", "csv")}
+                      variant="default"
+                      data-testid="button-export-all-csv"
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      Export All Results
+                      Export All (CSV)
                     </Button>
                     <Button
-                      onClick={() => handleExport("low-confidence")}
-                      variant="outline"
-                      className="flex-1"
-                      data-testid="button-export-low-confidence"
+                      onClick={() => handleExport("all", "xlsx")}
+                      variant="default"
+                      data-testid="button-export-all-xlsx"
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      Export Low Confidence Only
+                      Export All (XLSX)
+                    </Button>
+                    <Button
+                      onClick={() => handleExport("low-confidence", "csv")}
+                      variant="outline"
+                      data-testid="button-export-low-csv"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Low Confidence (CSV)
+                    </Button>
+                    <Button
+                      onClick={() => handleExport("low-confidence", "xlsx")}
+                      variant="outline"
+                      data-testid="button-export-low-xlsx"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Low Confidence (XLSX)
                     </Button>
                   </div>
                 </div>

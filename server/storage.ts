@@ -11,15 +11,20 @@ export interface IStorage {
   createProducts(products: InsertProduct[]): Promise<Product[]>;
   getProductsBySession(sessionId: string): Promise<Product[]>;
   updateProduct(id: string, updates: Partial<Product>): Promise<void>;
+  
+  saveTaxonomy(sessionId: string, taxonomy: any[]): Promise<void>;
+  getTaxonomy(sessionId: string): Promise<any[] | undefined>;
 }
 
 export class MemStorage implements IStorage {
   private sessions: Map<string, ProcessSession>;
   private products: Map<string, Product>;
+  private taxonomies: Map<string, any[]>;
 
   constructor() {
     this.sessions = new Map();
     this.products = new Map();
+    this.taxonomies = new Map();
   }
 
   async createSession(insertSession: InsertProcessSession): Promise<ProcessSession> {
@@ -85,6 +90,14 @@ export class MemStorage implements IStorage {
     if (product) {
       this.products.set(id, { ...product, ...updates });
     }
+  }
+
+  async saveTaxonomy(sessionId: string, taxonomy: any[]): Promise<void> {
+    this.taxonomies.set(sessionId, taxonomy);
+  }
+
+  async getTaxonomy(sessionId: string): Promise<any[] | undefined> {
+    return this.taxonomies.get(sessionId);
   }
 }
 
