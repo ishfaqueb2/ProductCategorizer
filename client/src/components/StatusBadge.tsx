@@ -32,7 +32,7 @@ export function StatusBadge({ status, confidence }: StatusBadgeProps) {
     },
   };
 
-  const config = configs[status];
+  const config = configs[status] || configs.processing;
   const Icon = config.icon;
 
   return (
