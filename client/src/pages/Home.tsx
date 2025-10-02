@@ -199,6 +199,25 @@ export default function Home() {
     }
   };
 
+  const handleStartNew = () => {
+    setCurrentStep("upload");
+    setCompletedSteps([]);
+    setProductFile(null);
+    setTaxonomyFile(null);
+    setDetectedColumns([]);
+    setColumnMappings({});
+    setConfidenceThreshold(0.7);
+    setIsProcessing(false);
+    setProcessingProgress({ current: 0, total: 0 });
+    setResults([]);
+    setSessionId(null);
+    
+    toast({
+      title: "Starting new categorization",
+      description: "All data has been reset",
+    });
+  };
+
   const canProceed = () => {
     if (currentStep === "upload") return productFile !== null;
     if (currentStep === "map") {
@@ -316,6 +335,18 @@ export default function Home() {
                     >
                       <Download className="h-4 w-4 mr-2" />
                       Low Confidence (XLSX)
+                    </Button>
+                  </div>
+
+                  <div className="pt-6 border-t">
+                    <Button
+                      onClick={handleStartNew}
+                      variant="outline"
+                      className="w-full"
+                      data-testid="button-start-new"
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Start New Categorization
                     </Button>
                   </div>
                 </div>
