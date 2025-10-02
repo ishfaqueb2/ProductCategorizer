@@ -1,0 +1,145 @@
+Final Project Plan: AI-Powered Product Categorization PWA
+🎯 Goal
+
+Build a Progressive Web App (PWA) using React + Node.js/Express that leverages Gemini API to categorize products into a given taxonomy. It must be user-friendly, installable, offline-ready, and scalable for large datasets.
+
+✅ Core Features
+1. File Upload
+
+Supported formats: .csv / .xlsx
+
+Upload options:
+
+Drag-and-drop zone
+
+Click-to-upload button
+
+Files required:
+
+Product File (in varying structures)
+
+Taxonomy File (structured hierarchy with IDs)
+
+2. Column Mapping
+
+Interactive screen after product file upload.
+
+User maps columns → required fields:
+
+id
+
+name
+
+brand
+
+description
+
+images (multiple optional)
+
+Stores mapping for consistent processing.
+
+3. Gemini API Integration
+
+Categorization handled in chunks of 500 products per API call.
+
+Returns:
+
+taxonomy_id
+
+taxonomy_path (L1 > L2 > L3 > L4)
+
+confidence_score
+
+4. Processing Flow
+
+Real-time progress tracking: display current chunk (Processing 3/12).
+
+Failure handling: resume from last successful chunk if request fails.
+
+Status labels: each product row gets a status field:
+
+✅ High-confidence (≥ threshold)
+
+⚠️ Low-confidence (< threshold, highlighted in UI and output)
+
+5. Confidence Threshold
+
+Configurable in the UI (default = 0.7).
+
+Products below threshold flagged as low-confidence.
+
+Highlighted in results table (e.g., yellow row background).
+
+6. Export Options
+
+Download results as .csv or .xlsx.
+
+Two modes:
+
+All results (full dataset with taxonomy + confidence).
+
+Low-confidence only (for manual review).
+
+7. Gemini API Key Management
+
+API Key input in header (not forced each run).
+
+Editable anytime from header → stored in browser local storage.
+
+Applied dynamically during backend requests.
+
+8. PWA Features
+
+manifest.json for installability.
+
+Service Worker for offline caching (static assets + session data).
+
+Works offline for previously loaded pages.
+
+9. UI/UX Flow (Step-by-Step Wizard)
+
+Upload Product File (drag-drop or click)
+
+Map Columns
+
+Upload Taxonomy File
+
+Enter/Update API Key (header option, not blocking flow)
+
+Set Confidence Threshold
+
+Process Data (progress shown, resumable)
+
+Download Results
+
+10. Interface Design
+
+Minimal, professional UI (React + TailwindCSS).
+
+Progress indicators (linear progress bar for chunk completion).
+
+Error handling:
+
+Invalid file format
+
+Missing columns
+
+Invalid/expired API key
+
+Highlighting: low-confidence rows displayed with warning color.
+
+📊 Example Output Table
+product_id	product_name	taxonomy_id	taxonomy_path	confidence_score	status
+1123	Women’s Rib Midi Dress	30	Apparel > Women’s Clothing > Dresses	0.94	✅ accepted
+1124	Belden Wallet	128	Accessories > Wallets	0.62	⚠️ low-confidence
+⚙️ Tech Stack
+
+Frontend: React + TailwindCSS
+
+Backend: Node.js + Express
+
+Parsing: PapaParse (CSV), SheetJS (XLSX)
+
+API Calls: Axios → Gemini API
+
+PWA: Service Worker + manifest.json
