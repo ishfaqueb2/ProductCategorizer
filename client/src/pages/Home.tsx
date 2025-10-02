@@ -138,7 +138,11 @@ export default function Home() {
         body: JSON.stringify({ apiKey }),
       });
 
-      if (!categorizeResponse.ok) throw new Error("Categorization failed");
+      if (!categorizeResponse.ok) {
+        const errorData = await categorizeResponse.json();
+        const errorMsg = errorData.error?.message || errorData.error || errorData.message || "Categorization failed";
+        throw new Error(errorMsg);
+      }
 
       const result = await categorizeResponse.json();
       setResults(result.products);

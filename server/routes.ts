@@ -156,9 +156,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const products = await storage.getProductsBySession(sessionId);
       const genAI = new GoogleGenAI({ apiKey });
-      const model = "gemini-2.5-flash";
 
-      const CHUNK_SIZE = 500;
+      const CHUNK_SIZE = 50;
       const chunks = [];
       for (let i = 0; i < products.length; i += CHUNK_SIZE) {
         chunks.push(products.slice(i, i + CHUNK_SIZE));
@@ -172,35 +171,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         
-        const prompt = `You are a product categorization AI. Given a list of products and a taxonomy, categorize each product.
+        const taxonomyList = taxonomy.map((t: any) => `${t.id}: ${t.path}`).join("\n");
+        
+        const prompt = `You are a product categorization AI. Categorize each product into the most appropriate taxonomy category.
 
-Taxonomy:
-${JSON.stringify(taxonomy, null, 2)}
+Available Taxonomy Categories:
+${taxonomyList}
 
 Products to categorize:
-${chunk.map((p, idx) => `${idx + 1}. ID: ${p.productId}, Name: ${p.name}, Brand: ${p.brand || "N/A"}, Description: ${p.description || "N/A"}`).join("\n")}
+${chunk.map((p) => `Product ID: ${p.productId}\nName: ${p.name}\nBrand: ${p.brand || "N/A"}\nDescription: ${p.description || "N/A"}\n`).join("\n---\n")}
 
-For each product, return a JSON array with objects containing:
-- productId: the product ID
-- taxonomyId: the matching taxonomy ID
-- taxonomyPath: the full path (e.g., "Apparel > Women's Clothing > Dresses")
-- confidenceScore: a number between 0 and 1 indicating confidence
+Return a JSON array with one object per product:
+[
+  {
+    "productId": "exact product ID from above",
+    "taxonomyId": "matching taxonomy ID",
+    "taxonomyPath": "full category path",
+    "confidenceScore": 0.95
+  }
+]
 
-Return ONLY the JSON array, no other text.`;
+Return ONLY valid JSON, no markdown or extra text.`;
 
         try {
+          console.log(`Processing chunk ${i + 1}/${chunks.length} with ${chunk.length} products`);
+          
           const result = await genAI.models.generateContent({
-            model,
+            model: "gemini-2.5-flash",
             contents: prompt,
           });
-          const response = result.text || "";
+          const responseText = result.text || "";
           
-          const jsonMatch = response.match(/\[[\s\S]*\]/);
+          console.log(`Received AI response (${responseText.length} chars)`);
+          
+          const jsonMatch = responseText.match(/\[[\s\S]*\]/);
           if (!jsonMatch) {
+            console.error("AI response did not contain JSON array. Response:", responseText.substring(0, 500));
             throw new Error("Invalid response format from AI");
           }
           
           const categorizations = JSON.parse(jsonMatch[0]);
+          console.log(`Successfully parsed ${categorizations.length} categorizations`);
 
           for (const cat of categorizations) {
             const product = chunk.find((p) => p.productId === cat.productId);
@@ -214,21 +225,26 @@ Return ONLY the JSON array, no other text.`;
             }
           }
         } catch (error: any) {
+          console.error(`Error processing chunk ${i + 1}:`, error.message);
+          console.error("Error stack:", error.stack);
+          
+          const errorMessage = error.error?.message || error.message || "Unknown error";
           failedChunks++;
           for (const product of chunk) {
             await storage.updateProduct(product.id, {
               status: "error",
-              errorMessage: error.message,
+              errorMessage: errorMessage,
             });
           }
 
           if (failedChunks >= chunks.length) {
+            console.error("All chunks failed. Failing session.");
             await storage.updateSessionStatus(sessionId, "failed");
             const failedProducts = await storage.getProductsBySession(sessionId);
             return res.status(500).json({
               sessionId,
               status: "failed",
-              error: "All categorization chunks failed",
+              error: errorMessage,
               products: failedProducts,
             });
           }
